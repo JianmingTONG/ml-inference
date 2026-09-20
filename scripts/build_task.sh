@@ -1,65 +1,49 @@
 #!/usr/bin/env bash
-
 # Copyright (c) 2025 HomomorphicEncryption.org
-# All rights reserved.
+# Licensed under the Apache v2 License. See LICENSE.md.
 #
-# This software is licensed under the terms of the Apache v2 License.
-# See the LICENSE.md file for details.
-
 # ------------------------------------------------------------
 # Usage: ./scripts/build_task.sh <TASK_DIR>
-# Compiles the files in the source directory.
+#
+# Build step for the CROSS/TPU submission. CROSS (jaxite_word) is a JAX
+# library used in place, so "building" means checking the runtime is present
+# and the trained weights exist -- there is nothing to compile.
+#
+# The expensive artifact, the compiled CKKS Mapping with its evaluation keys,
+# BSGS diagonals and encoded constants, is built by benchmark stage 3
+# (server_preprocess_model) on the accelerator, where the harness measures it.
 # ------------------------------------------------------------
 set -euo pipefail
 
-# Define core paths
 ROOT="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )/.." &> /dev/null && pwd )"
-TASK_DIR="$1"
-BUILD="$TASK_DIR/build"
-NPROC=$(nproc 2>/dev/null || sysctl -n hw.ncpu || echo 4)
+TASK_DIR="${1:-$ROOT/submissions/mnist}"
+[[ "$TASK_DIR" = /* ]] || TASK_DIR="$ROOT/$TASK_DIR"
 
-# --- 1. LibTorch (PyTorch C++ distribution) ---
-LIBTORCH_DIR="$ROOT/third_party/libtorch"
-LIBTORCH_ZIP_NAME="libtorch_temp.zip"
-LIBTORCH_URL="https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.5.1%2Bcpu.zip"
+python3 - "$ROOT" "$TASK_DIR" <<'PY'
+import importlib.util
+import os
+import sys
 
-if [ ! -d "$LIBTORCH_DIR" ]; then
-    echo "Downloading LibTorch..."
-    mkdir -p "$ROOT/third_party"
-    cd "$ROOT/third_party"
+root, task_dir = sys.argv[1], sys.argv[2]
 
-    # Use -O to force the output filename and avoid ".zip.1" duplicates
-    # We also remove any existing partial downloads first to be safe
-    rm -f "$LIBTORCH_ZIP_NAME"
-    wget -O "$LIBTORCH_ZIP_NAME" "$LIBTORCH_URL"
-    
-    echo "Unzipping LibTorch..."
-    unzip -q "$LIBTORCH_ZIP_NAME"
-    rm "$LIBTORCH_ZIP_NAME"
-    
-    cd "$ROOT"
-    echo "LibTorch successfully set up at $LIBTORCH_DIR"
-fi
+missing = [name for name in ("jax", "torch", "numpy")
+           if importlib.util.find_spec(name) is None]
+if missing:
+    sys.exit(f"[build] missing Python packages: {', '.join(missing)}. "
+             f"See {task_dir}/README.md for the environment setup.")
 
-# --- 2. nlohmann/json ---
-NLOHMANN_DIR="$ROOT/third_party/nlohmann"
-NLOHMANN_HEADER="$NLOHMANN_DIR/json.hpp"
-NLOHMANN_URL="https://raw.githubusercontent.com/nlohmann/json/develop/single_include/nlohmann/json.hpp"
+# CROSS is used in place and is not packaged, so locate it the same way the
+# submission does and fail with a path list rather than a bare ImportError.
+sys.path.insert(0, os.path.join(task_dir, "src"))
+import cross_task  # noqa: E402
 
-if [[ ! -f "$NLOHMANN_HEADER" ]]; then
-      echo "Downloading nlohmann/json..."
-      mkdir -p "$NLOHMANN_DIR"
-      curl -L -o "$NLOHMANN_HEADER" "$NLOHMANN_URL"
-fi
+print(f"[build] CROSS found at {cross_task.CROSS_ROOT or '(on PYTHONPATH)'}")
 
-# --- 3. Build Process ---
-# We assume OpenFHE is in /third_party/openfhe or provided via CMAKE_PREFIX_PATH.
-echo "Configuring project with CMake..."
-cmake -S "$TASK_DIR" -B "$BUILD" \
-      -DCMAKE_PREFIX_PATH="$ROOT/third_party/openfhe;$ROOT/third_party/libtorch"
+weights = os.path.join(task_dir, "model", "he_mlp_weights.pth")
+if not os.path.isfile(weights):
+    sys.exit(f"[build] {weights} not found. Train it with:\n"
+             f"    python3 {task_dir}/model/train_he_mlp.py")
+print(f"[build] model weights present: {os.path.basename(weights)}")
+PY
 
-echo "Compiling with $NPROC cores..."
-cd "$BUILD"
-make -j"$NPROC"
-
-echo "Build complete."
+echo "[build] CROSS submission ready (no compilation required)."

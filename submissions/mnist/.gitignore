@@ -1,0 +1,7 @@
+# Runtime state of the resident CROSS server (pidfile, socket, markers, log)
+# and the active-size handshake.
+run/
+__pycache__/
+*.pyc
+# Training checkpoint; model/he_mlp_weights.pth is the committed artifact.
+model/*.pth.train

@@ -1,37 +1,45 @@
 {
+  "model_name": "mlp",
+  "dataset_name": "mnist",
   "Timing": {
-    "Test dataset generation": "4.1259s",
-    "Key Generation": "0.9661s",
-    "Encrypted model preprocessing": "0.0037s",
-    "Input generation": "2.4171s",
-    "Input preprocessing": "0.0215s",
-    "Input encryption": "3.0323s",
-    "Encrypted computation": "647.0703s",
-    "Result decryption": "2.5428s",
-    "Result postprocessing": "0.0029s",
-    "Harness: Run inference for harness plaintext model": "75.5029s",
+    "Test dataset generation": "4.2299s",
+    "Key Generation": "4.7735s",
+    "Encrypted model preprocessing": "492.9665s",
+    "Input generation": "6.099s",
+    "Input preprocessing": "0.0983s",
+    "Input encryption": "31.1634s",
+    "Encrypted computation": "2.917s",
+    "Result decryption": "11.8938s",
+    "Result postprocessing": "0.0867s",
+    "Harness: Run inference for harness plaintext model": "130.4648s",
     "Harness: Run quality check": "0.0003s",
-    "Total": "735.6858s"
+    "Total": "684.6933s"
   },
   "Bandwidth": {
-    "Public and evaluation keys": "1.0G",
-    "Encrypted input": "500.3M",
-    "Encrypted results": "100.2M"
+    "Public and evaluation keys": "8.0M",
+    "Encrypted input": "300.2M",
+    "Encrypted results": "50.2M"
   },
   "Quality": {
     "Encrypted model quality": {
-      "correct_predictions": 96,
+      "correct_predictions": 99,
       "total_samples": 100,
-      "accuracy": 0.96
+      "accuracy": 0.99
     },
     "Harness model quality": {
-      "correct_predictions": 100,
+      "correct_predictions": 97,
       "total_samples": 100,
-      "accuracy": 1.0
+      "accuracy": 0.97
     }
   },
   "Server Reported": {
-    "Encrypted computation": "634.0960000000001s", 
-    "Total": "634.0960000000001s"
+    "server_model_preprocessing_total": "479.0799s",
+    "server_mapping_build": "465.2322s",
+    "server_mapping_warmup": "3.298s",
+    "server_encrypted_compute_total": "2.8245s",
+    "server_tpu_execute": "1.9933s",
+    "server_tpu_execute_per_inference": "0.0199s",
+    "server_ciphertext_load": "0.234s",
+    "server_ciphertext_store": "0.459s"
   }
 }

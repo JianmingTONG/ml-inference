@@ -1,4 +1,48 @@
 # FHE Benchmarking Suite - ML Inference
+
+> ## This fork: CROSS on Google TPU v6e
+>
+> This fork replaces `submissions/mnist/` with a **CKKS submission running on
+> eight Google TPU v6e chips**, implemented with
+> [CROSS](https://github.com/EfficientPPML/CROSS) (`jaxite_word`) from
+> *Leveraging ASIC AI Chips for Homomorphic Encryption* (HPCA'26).
+>
+> | | |
+> |---|---|
+> | **Encrypted inference** | **19.9 ms per image** on 8 × TPU v6e (~50 inferences/s) |
+> | **Scaling** | 7.68× from 1 to 8 chips (near-linear) |
+> | **Accuracy** | 99/100 on the small instance — the harness plaintext model scores 97/100 |
+> | **Security** | **128-bit classical**, CKKS at ring degree 32768 (`log2(QP) = 485` of the 881 bits the HE Standard permits at N=32768) |
+> | **Acceleration hardware** | one Google Cloud `v6e-8` VM: 8 × TPU v6e, 31.2 GiB HBM each |
+> | **Submission type** | open source; complete implementation in `submissions/mnist/` |
+>
+> **Read [`submissions/mnist/README.md`](submissions/mnist/README.md)** for the
+> scheme and parameters, the security justification, the one model-architecture
+> change (ReLU → x²), the documented pre/post-processing, and the honest
+> limitations. Reproduction steps are in
+> [`submissions/mnist/docs/EVALUATION.md`](submissions/mnist/docs/EVALUATION.md);
+> full measurements in
+> [`submissions/mnist/docs/RESULTS.md`](submissions/mnist/docs/RESULTS.md).
+>
+> Measurements committed under `measurements/{single,small,medium}/` were
+> produced by the **unmodified harness** with `--num_runs 3`.
+>
+> Changed in this fork: `submissions/mnist/` (replaced),
+> `scripts/build_task.sh` and `scripts/get_openfhe.sh` (replaced — CROSS links
+> no OpenFHE and compiles nothing). **`harness/` is untouched.**
+>
+> Quick start:
+> ```console
+> git clone https://github.com/EfficientPPML/CROSS.git ~/CROSS
+> conda create -y --name jaxite python=3.13 && conda activate jaxite
+> pip install -U "jax[tpu]" absl-py numpy
+> pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+>
+> python3 submissions/mnist/src/selftest.py                  # 12 checks, no TPU needed
+> python3 harness/run_submission.py 1 --seed 3 --num_runs 3   # small instance
+> python3 submissions/mnist/server_stop.py                    # release the TPU
+> ```
+
 This repository contains the harness for the ML-inference workload of the FHE benchmarking suite of [HomomorphicEncryption.org](https://www.HomomorphicEncryption.org).
 The harness currently supports mnist model benchmarking as specified in `harness/mnist` directory.
 The `main` branch contains a reference implementation of this workload, under the `submissions` subdirectory.
