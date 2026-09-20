@@ -284,6 +284,14 @@ MODEL_VARIANTS = {
     'linear': ('he_mlp_linear', 'LinearHE', 'he_mlp_linear_weights.pth',
                {'register_word_size': 19, 'scaling_mod_size': 34,
                 'first_mod_size': 35}),
+    # Same 784-128-64-10 network as `deep`, but a 44-bit scale instead of 60
+    # drops it from N=32768 to N=16384 (log2(QP) 485 -> 353, ceiling 438).
+    'deep16k': ('he_mlp', 'HEMLP', 'he_mlp_weights.pth',
+                {'scaling_mod_size': 44, 'first_mod_size': 45}),
+    # Same 784-50-10 network as `shallow` at a 42-bit scale: same ring, but
+    # one fewer P tower (log2(QP) 365 -> 256).
+    'shallow42': ('he_mlp_shallow', 'ShallowHEMLP', 'he_mlp_shallow_weights.pth',
+                  {'scaling_mod_size': 42, 'first_mod_size': 43}),
 }
 MODEL_VARIANT = os.environ.get('CROSS_MODEL', 'shallow').lower()
 if MODEL_VARIANT not in MODEL_VARIANTS:

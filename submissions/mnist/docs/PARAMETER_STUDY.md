@@ -332,3 +332,71 @@ ring*. A linear classifier is all that fits at N = 4096 under 32-bit lanes.
 variant that would rank *below* both existing leaderboard entries on accuracy.
 `shallow` stays the submission: it is 4.4× faster than the original and still
 the most accurate entry bar `deep`.
+
+---
+
+## Can the other variants use a smaller ring?
+
+Two questions, answered by sweeping `scaling_mod_size` and `register_word_size`
+through `he_params.generate_ring_config` (the cheap part that picks the ring —
+calling `packing.pack` per configuration does full BSGS planning and is far too
+slow for a sweep).
+
+### shallow: 16384 → 8192? **No.**
+
+| `rws` | `smod` | N | Qp | Pp | log2(QP) |
+|---:|---:|---:|---:|---:|---:|
+| 32 | 60 | 16384 | 8 | 4 | 365.0 |
+| 32 | 44 | 16384 | 8 | 3 | 267.7 |
+| 32 | 42 | 16384 | 8 | 3 | **256.2** ← floor |
+| 32 | 40 | — | | | `ParameterGenerationError` |
+| 24 | 42 | 16384 | 8 | 4 | 254.8 |
+| 24 | 40 | — | | | `ParameterGenerationError` |
+
+The ceiling at N = 8192 is 218 bits and the floor reachable here is **254.8** —
+a 37-bit gap. Below `scaling_mod_size = 42` the composite-prime search fails
+outright at every `register_word_size` tried (32, 28, 24), so there is nothing
+left to trim. Depth 3 costs 8 Q towers, and 8 towers will not fit under 218
+bits at the prime sizes N = 8192 admits.
+
+### deep: 32768 → 16384? **Yes.**
+
+`scaling_mod_size = 44` instead of 60 is enough on its own — `register_word_size`
+does not need to move:
+
+| | deep | **deep16k** |
+|---|---:|---:|
+| ring degree | 32768 | **16384** |
+| Q / P towers | 12 / 4 | 12 / 3 |
+| log2(QP) | 485.0 | **353.3** (ceiling 438) |
+| TPU per inference, 8 chips | 19.243 ms | **7.216 ms** |
+| inferences/s | 52.0 | **138.6** |
+| max logit error | 5.2e-12 | 3.0e-07 |
+| **encrypted accuracy, medium** | **0.984** | **0.984** |
+| stage 7, medium | 26.72 s | **12.10 s** |
+| harness total, medium | 917.0 s | **427.1 s** |
+
+**2.7× faster with identical accuracy**, on the same weights. The logit error
+rises from 5.2e-12 to 3.0e-07 — still five orders of magnitude better than the
+N = 4096 configuration, and labels matched cleartext on every run. `deep16k`
+strictly dominates `deep`; there is no reason to run the 32768 ring.
+
+### A smaller free win: shallow42
+
+`shallow` at `scaling_mod_size = 42` stays on N = 16384 but drops from 4 P
+towers to 3, log2(QP) 365 → 256: **4.349 ms** against 4.464, a 2.5% gain at the
+same accuracy.
+
+### Updated ladder
+
+| variant | ring | log2(QP) | ms/inference | accuracy (medium) |
+|---|---:|---:|---:|---:|
+| `linear` | 4096 | 100.1 | **1.127** | 0.92 |
+| `shallow42` | 16384 | 256.2 | 4.349 | 0.976 |
+| `shallow` | 16384 | 365.0 | 4.464 | 0.976 |
+| `deep16k` | 16384 | 353.3 | 7.216 | **0.984** |
+| `deep` | 32768 | 485.0 | 19.243 | 0.984 | *(superseded by `deep16k`)* |
+
+Against the leaderboard, `deep16k` is the most accurate entry (0.984, versus
+Lattica-ai 0.972 and the OpenFHE reference 0.974) and now costs only 1.7× the
+latency of `shallow` rather than 4.3×.

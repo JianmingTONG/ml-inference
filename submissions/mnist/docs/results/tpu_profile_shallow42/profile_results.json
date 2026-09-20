@@ -1,0 +1,74 @@
+[
+  {
+    "device_count": 8,
+    "local_batch": 1,
+    "global_batch": 8,
+    "mapping_build_s": 123.23317604800104,
+    "encrypt_s": 1.001585129997693,
+    "execute_median_s": 0.03478918900509598,
+    "execute_mean_s": 0.03478551124935621,
+    "execute_stdev_s": 4.604061883690195e-05,
+    "execute_min_s": 0.03471793000062462,
+    "execute_max_s": 0.03488218999700621,
+    "per_inference_ms": 4.348648625636997,
+    "throughput_infer_per_s": 229.95649593407157,
+    "max_logit_abs_error": 6.389250053473461e-07,
+    "labels_matching_cleartext": 8,
+    "labels_total": 8,
+    "live_memory": {
+      "ciphertext_in_bytes": 8388608,
+      "ciphertext_out_bytes": 2097152,
+      "matvec_constants_bytes": 452198400,
+      "plaintext_constants_bytes": 524288,
+      "evaluation_key_bytes": 2883584,
+      "rotation_keys_bytes": 219152384,
+      "rotation_key_count": 76,
+      "total_bytes": 685244416
+    },
+    "device_memory": {
+      "TPU_0(process=0,(0,0,0,0))": {
+        "bytes_in_use": 1779856896,
+        "peak_bytes_in_use": 1789818368,
+        "bytes_limit": 33546039296
+      },
+      "TPU_1(process=0,(1,0,0,0))": {
+        "bytes_in_use": 964339200,
+        "peak_bytes_in_use": 965912064,
+        "bytes_limit": 33546039296
+      },
+      "TPU_2(process=0,(0,1,0,0))": {
+        "bytes_in_use": 964339200,
+        "peak_bytes_in_use": 965912064,
+        "bytes_limit": 33546039296
+      },
+      "TPU_3(process=0,(1,1,0,0))": {
+        "bytes_in_use": 964339200,
+        "peak_bytes_in_use": 965912064,
+        "bytes_limit": 33546039296
+      },
+      "TPU_4(process=0,(0,2,0,0))": {
+        "bytes_in_use": 964339200,
+        "peak_bytes_in_use": 965912064,
+        "bytes_limit": 33546039296
+      },
+      "TPU_5(process=0,(1,2,0,0))": {
+        "bytes_in_use": 964339200,
+        "peak_bytes_in_use": 965912064,
+        "bytes_limit": 33546039296
+      },
+      "TPU_6(process=0,(0,3,0,0))": {
+        "bytes_in_use": 964339200,
+        "peak_bytes_in_use": 965912064,
+        "bytes_limit": 33546039296
+      },
+      "TPU_7(process=0,(1,3,0,0))": {
+        "bytes_in_use": 964339200,
+        "peak_bytes_in_use": 965912064,
+        "bytes_limit": 33546039296
+      }
+    },
+    "rotation_keys": 76,
+    "iterations": 20,
+    "trace_dir": null
+  }
+]
