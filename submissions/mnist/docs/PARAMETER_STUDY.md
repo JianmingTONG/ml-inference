@@ -1,0 +1,163 @@
+# Can CROSS run at Lattica-ai's N = 4096?
+
+Short answer: **no, not at any depth**, and the reason is the same design choice
+that makes CROSS run on a TPU at all. This note records the measurement.
+
+## What Lattica-ai uses
+
+From `submission_remote/mlp/submission_params_and_model/README_Lattica_submission.md`
+in [Lattica-ai/ml-inference](https://github.com/Lattica-ai/ml-inference):
+
+```python
+"full_q_list_precision": ((61,), (45,)),   # modulus chain: ~106 bits total
+"n": 2 ** 12,                              # ring degree 4096
+"err_std": 3.19,
+"sk_hw": 0,                                # uniform ternary secret
+"g_base_bits": 4,                          # gadget decomposition in the eval key
+"pt_scale": 2 ** 20,
+```
+
+106 bits at N = 4096, against the 109-bit ceiling the Homomorphic Encryption
+Standard gives for a uniform ternary secret at 128-bit classical security. A
+3-bit margin, and no separate `P`: with gadget-decomposition key switching the
+security modulus is just `Q`.
+
+## Why CROSS cannot match it
+
+CROSS targets the TPU, whose integer path is 32-bit. Every native modulus must
+stay below `2^31`, so one 60-bit CKKS scale is stored as **two ~30-bit RNS
+primes**, and `composite_degree = 2` is a hard invariant — `he_params` raises
+`"CROSS secure profiles require composite_degree=2"` for anything else.
+
+That fixes the cost of a level at ~60 bits and makes the depth ladder coarse.
+Measured by packing real models through `packing.pack`:
+
+| program | depth | `N` | Q towers | log2(QP) | ceiling at that `N` |
+|---|---:|---:|---:|---:|---:|
+| one matvec, nothing else | 1 | 8192 | 4 | 183 | 218 |
+| matvec + square | 2 | 16384 | 6 | 243 | 438 |
+| **784-50-10, one square** (Lattica topology) | 3 | **16384** | 8 | 365 | 438 |
+| **784-128-64-10, two squares** (harness topology) | 5 | **32768** | 12 | 485 | 881 |
+
+**Even a single matvec needs 183 bits — already 74 bits past the 109-bit
+ceiling at N = 4096.** There is no program, however shallow, that CROSS can
+place on that ring: the floor is set by the arithmetic backend, not by the
+model.
+
+Lattica fits 106 bits because 61- and 45-bit moduli are native 64-bit
+arithmetic on a GPU. That is the trade: CROSS accepts a larger ring to get
+32-bit lanes the TPU's matrix unit can actually use.
+
+Lowering `scaling_mod_size` does not help either, because `composite_degree=1`
+is rejected outright; and relaxing that guard would change the scale semantics
+the evaluator depends on (`_default_matvec_plaintext_scale` treats CD1
+differently), so it is not a parameter to turn casually.
+
+## What is reachable, and what it buys
+
+The lever CROSS does respond to is **program depth**, which means the
+architecture is the parameter choice. Adopting Lattica's shallower topology —
+`784 → 50 → 10` with a single square — halves the ring:
+
+| | deep (`CROSS_MODEL=deep`) | shallow (`CROSS_MODEL=shallow`) |
+|---|---:|---:|
+| topology | 784-128-64-10, 2 squares | 784-50-10, 1 square |
+| depth | 5 | 3 |
+| ring degree | 32768 | **16384** |
+| Q towers | 12 | **8** |
+| log2(QP) | 485 | 365 |
+| ciphertext | 3.0 MiB | **1.0 MiB** |
+| PP-ops | 8 | 5 |
+| MNIST test accuracy | 97.82% | 97.39% |
+
+Both are 128-bit classical. Select the architecture with `CROSS_MODEL`.
+
+## Measured effect of the ring reduction
+
+Steady-state `Mapping.execute`, median of 20 iterations after 3 warmups, every
+configuration checked against the cleartext model before timing. Raw JSON in
+`results/tpu_profile_shallow/profile_results.json` and
+`results/tpu_profile/profile_results.json`.
+
+| chips | deep, N=32768 | shallow, N=16384 | speedup |
+|---:|---:|---:|---:|
+| 1 | 147.71 ms | **30.91 ms** | 4.78× |
+| 2 | 75.59 ms | **16.52 ms** | 4.58× |
+| 4 | 38.01 ms | **8.57 ms** | 4.44× |
+| 8 | 19.24 ms | **4.46 ms** | **4.31×** |
+
+At 8 chips that is **224.0 inferences/s**, against 51.97 for the deep model.
+Secondary effects, all in the same direction:
+
+| | deep | shallow |
+|---|---:|---:|
+| Mapping build | 439–467 s | **122–131 s** |
+| rotation keys | 134 | **76** |
+| HBM, busiest chip | 9.31 GiB | **1.70 GiB** |
+| ciphertext | 3.0 MiB | **1.0 MiB** |
+| max logit error vs cleartext | 5.2e-12 | 2.1e-12 |
+| MNIST test accuracy | 97.82% | 97.39% |
+
+Halving the ring roughly quartered the per-inference cost: the ring is 2×
+smaller *and* carries 8 Q towers instead of 12, and the program emits 5 PP-ops
+instead of 8. The cost is 0.43 points of plaintext accuracy.
+
+## Where that leaves the comparison with Lattica-ai
+
+Per-image accelerator time, from the published leaderboard and from the runs
+above:
+
+| | per image |
+|---|---:|
+| Lattica-ai, medium instance (1000 images) | 0.215 ms |
+| Lattica-ai, small instance (100 images) | 2.16 ms |
+| **CROSS/TPU shallow, 8 chips, batch 8** | **4.46 ms** |
+| CROSS/TPU deep, 8 chips, batch 8 | 19.24 ms |
+| Reference OpenFHE (CPU), medium | 6390 ms |
+
+The shallow model closes most of the gap at comparable batch: 2.1× behind
+Lattica's small instance, down from 9.2×. The remaining gap at their medium
+instance is not ring size but **packing**: Lattica puts the batch on the ring
+axis (784 ciphertexts each holding up to 512 images), so their per-image cost
+keeps falling with batch size, while CROSS carries one image per ciphertext and
+stays flat. Their small and medium rows report the same 98 MB of input and the
+same ~215 ms of compute for 10× the images, which is that effect.
+
+
+## End-to-end re-evaluation, unmodified harness, `--num_runs 3`
+
+Both architectures measured the same way, on the same 8 × TPU v6e. `deep` rows
+are preserved under `results/measurements_deep/`; the committed
+`measurements/` are the `shallow` runs.
+
+| instance | | deep N=32768 | shallow N=16384 | change |
+|---|---|---:|---:|---|
+| single | TPU per inference | 153.7 ms | **34.4 ms** | 4.5× faster |
+| | harness total | 500.7 s | **158.0 s** | 3.2× faster |
+| | verdict | PASS | **PASS** | — |
+| small (100) | TPU per inference | 19.9 ms | **4.5 ms** | 4.4× faster |
+| | stage 7 | 2.86 s | **1.04 s** | |
+| | harness total | 552.3 s | **188.7 s** | 2.9× faster |
+| | encrypted accuracy | 0.99 | **0.96** | −0.03 |
+| medium (1000) | TPU per inference | 19.1 ms | **4.3 ms** | 4.4× faster |
+| | stage 7 | 26.72 s | **9.32 s** | |
+| | harness total | 917.0 s | **331.7 s** | 2.8× faster |
+| | encrypted accuracy | 0.984 | **0.976** | −0.008 |
+| | keys / input / result | 8.0 M / 2.9 G / 501.5 M | **3.0 M / 1001.6 M / 251.5 M** | ~3× smaller |
+
+The harness plaintext model scores 0.97 (small) and 0.982 (medium) on the same
+samples, so `shallow` sits just below it where `deep` sat just above.
+
+### Which to submit
+
+| | deep | shallow |
+|---|---|---|
+| per-inference latency | 19.1 ms | **4.3 ms** |
+| accuracy, medium | **0.984** | 0.976 |
+| accuracy vs Lattica-ai (0.972) | +0.012 | +0.004 |
+| accuracy vs OpenFHE reference (0.974) | +0.010 | +0.002 |
+
+`shallow` is 4.4× faster and still ahead of both other leaderboard entries on
+accuracy; `deep` is the most accurate submission on the board. Select with
+`CROSS_MODEL=deep` or `CROSS_MODEL=shallow`; the committed measurements are
+`shallow`.

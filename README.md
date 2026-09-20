@@ -9,10 +9,10 @@
 >
 > | | |
 > |---|---|
-> | **Encrypted inference** | **19.9 ms per image** on 8 × TPU v6e (~50 inferences/s) |
-> | **Scaling** | 7.68× from 1 to 8 chips (near-linear) |
-> | **Accuracy** | 99/100 on the small instance — the harness plaintext model scores 97/100 |
-> | **Security** | **128-bit classical**, CKKS at ring degree 32768 (`log2(QP) = 485` of the 881 bits the HE Standard permits at N=32768) |
+> | **Encrypted inference** | **4.3 ms per image** on 8 × TPU v6e (224 inferences/s) |
+> | **Scaling** | 6.92× from 1 to 8 chips |
+> | **Accuracy** | 0.976 at the medium instance, ahead of both other leaderboard entries (0.972, 0.974) |
+> | **Security** | **128-bit classical**, CKKS at ring degree 16384 (`log2(QP) = 365` of the 438 bits the HE Standard permits at N=16384) |
 > | **Acceleration hardware** | one Google Cloud `v6e-8` VM: 8 × TPU v6e, 31.2 GiB HBM each |
 > | **Submission type** | open source; complete implementation in `submissions/mnist/` |
 >

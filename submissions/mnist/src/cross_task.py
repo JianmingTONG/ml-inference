@@ -259,18 +259,46 @@ def parse_size(argv) -> int:
 # --------------------------------------------------------------------------
 # The model, and the packed program both parties derive from it
 # --------------------------------------------------------------------------
-WEIGHTS = SUBMISSION_ROOT / 'model' / 'he_mlp_weights.pth'
+# Which HE-friendly architecture to deploy. CROSS derives the ring from the
+# multiplicative depth the program emits, so the architecture *is* the
+# parameter choice:
+#
+#   shallow  784-50-10,     one square,  depth 3 -> N = 16384,  8 Q towers
+#   deep     784-128-64-10, two squares, depth 5 -> N = 32768, 12 Q towers
+#
+# `shallow` is the default: 4.4x faster per inference, and still ahead of both
+# other leaderboard entries on accuracy.
+#
+# `shallow` mirrors the topology Lattica-ai's submission uses and is the
+# smallest ring CROSS can reach for a useful MNIST model. See
+# model/he_mlp_shallow.py for why N = 4096 is not reachable at any depth.
+MODEL_VARIANTS = {
+    'deep': ('he_mlp', 'HEMLP', 'he_mlp_weights.pth'),
+    'shallow': ('he_mlp_shallow', 'ShallowHEMLP', 'he_mlp_shallow_weights.pth'),
+}
+MODEL_VARIANT = os.environ.get('CROSS_MODEL', 'shallow').lower()
+if MODEL_VARIANT not in MODEL_VARIANTS:
+  raise SystemExit(
+      f'CROSS_MODEL={MODEL_VARIANT!r} is not one of {sorted(MODEL_VARIANTS)}')
+
+_MODULE, _CLASS, _WEIGHT_FILE = MODEL_VARIANTS[MODEL_VARIANT]
+WEIGHTS = SUBMISSION_ROOT / 'model' / _WEIGHT_FILE
+
+
+def _model_class():
+  import importlib
+  return getattr(importlib.import_module(_MODULE), _CLASS)
 
 
 def load_model():
   """The trained inference-shaped HE MLP, in float64 for exact packing."""
   import torch
-  from he_mlp import HEMLP
 
-  model = HEMLP()
+  model = _model_class()()
   if not WEIGHTS.exists():
     raise FileNotFoundError(
-        f'{WEIGHTS} not found; run submission_cross/model/train_he_mlp.py first.')
+        f'{WEIGHTS} not found; train it with '
+        f'model/train_{_MODULE}.py (CROSS_MODEL={MODEL_VARIANT}).')
   model.load_state_dict(torch.load(WEIGHTS, map_location='cpu'))
   return model.double().eval()
 
@@ -303,10 +331,9 @@ def build_client_packed():
   belong.  ``verify_against_manifest`` then checks the two sides really did
   land on the same ring before anything is encrypted.
   """
-  from he_mlp import HEMLP
   from jaxite_word import nn, packing
 
-  model = HEMLP().double().eval()
+  model = _model_class()().double().eval()
   program = nn.vectorize(model, (784,), warn=False)
   return packing.pack(
       program, policy=packing.PackingPolicy(lazy_constants=True))

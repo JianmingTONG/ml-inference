@@ -10,7 +10,8 @@ library from *Leveraging ASIC AI Chips for Homomorphic Encryption* (HPCA'26).
 | Security | **128-bit classical**, ring degree 32768 — justified below |
 | Acceleration hardware | **8 × Google TPU v6e** (31.2 GiB HBM per chip), one `v6e-8` VM |
 | Submission type | Open source, complete implementation in this directory |
-| Encrypted inference | **19.24 ms** per image on 8 chips (51.97 inferences/s) |
+| Encrypted inference | **4.3 ms** per image on 8 chips (224 inferences/s) |
+| Ring | N = 16384, 128-bit classical (`CROSS_MODEL=shallow`, default) |
 
 ---
 
@@ -22,10 +23,15 @@ it is timed.
 
 | chips | 1 | 2 | 4 | **8** |
 |---|---:|---:|---:|---:|
-| execute (ms) | 147.7 | 151.2 | 152.0 | 153.9 |
-| ms / inference | 147.71 | 75.59 | 38.01 | **19.24** |
-| inferences / s | 6.77 | 13.23 | 26.31 | **51.97** |
-| scaling | 1.00× | 1.95× | 3.89× | **7.68×** |
+| execute (ms) | 30.9 | 33.0 | 34.3 | 35.7 |
+| ms / inference | 30.91 | 16.52 | 8.57 | **4.46** |
+| inferences / s | 32.35 | 60.55 | 116.65 | **224.01** |
+| scaling | 1.00× | 1.87× | 3.61× | **6.92×** |
+
+The deeper `CROSS_MODEL=deep` variant (784-128-64-10, N = 32768) is 4.3×
+slower per inference and 0.008 more accurate at the medium instance; see
+[docs/PARAMETER_STUDY.md](docs/PARAMETER_STUDY.md) for the full comparison and
+for why Lattica-ai's N = 4096 is not reachable from CROSS at any depth.
 
 Strong scaling is near-linear to all eight chips. Per-execute latency barely
 moves from 1 to 8 chips because each chip evaluates an independent ciphertext
@@ -50,14 +56,14 @@ parameter set is:
 | parameter | value |
 |---|---|
 | scheme | CKKS |
-| ring degree `N` | **32768** |
-| slots | 16384 (`N/2`) |
-| ciphertext modulus `Q` | 12 towers of 30–31 bits, **log2(Q) = 361.0** |
-| key-switching modulus `P` | 4 towers of 31 bits, **log2(QP) = 485.0** |
+| ring degree `N` | **16384** (`shallow`); 32768 (`deep`) |
+| slots | 8192 = `N/2` (`shallow`); 16384 (`deep`) |
+| ciphertext modulus `Q` | 8 towers, **log2(Q) = 241.0** (`shallow`) |
+| key-switching modulus `P` | 4 towers, **log2(QP) = 365.0** (`shallow`) |
 | key-switching | HYBRID, `dnum = 3` |
 | secret distribution | ternary uniform |
 | error distribution | discrete Gaussian, `sigma = 3.19` |
-| multiplicative depth used | 5 |
+| multiplicative depth used | 3 (`shallow`); 5 (`deep`) |
 | claimed security | **128-bit classical** |
 
 **Why the claim holds.** The security of RLWE at a given dimension is bounded
@@ -65,13 +71,14 @@ by the total modulus the adversary sees, which for HYBRID key switching is
 `QP`, not `Q` alone. Here:
 
 ```
-N = 32768,  log2(Q) = 361.0,  log2(QP) = 485.0,  ternary secret,  sigma = 3.19
+shallow:  N = 16384,  log2(Q) = 241.0,  log2(QP) = 365.0,  ternary,  sigma = 3.19
+deep:     N = 32768,  log2(Q) = 361.0,  log2(QP) = 485.0,  ternary,  sigma = 3.19
 ```
 
 The Homomorphic Encryption Standard's `HEStd_128_classic` table permits
-`log2(Q) ≤ 881` at `N = 32768` for a uniform ternary secret. This chain uses
-**485 of those 881 bits — a 396-bit margin**, so it sits well inside the
-128-bit region for that dimension, and likewise for the Albrecht et al. LWE
+`log2(Q) ≤ 438` at `N = 16384` and `≤ 881` at `N = 32768` for a uniform ternary
+secret. `shallow` uses **365 of 438 bits (a 73-bit margin)** and `deep`
+**485 of 881 (a 396-bit margin)**, so both sit inside the 128-bit region, and likewise for the Albrecht et al. LWE
 estimator at `n = 32768`. Reproduce the numbers with:
 
 ```console
@@ -105,8 +112,13 @@ weakness — the parameters above are unaffected.
 ## 3. How the solution works
 
 ```
-784 ──Linear(784,128)──► x² ──Linear(128,64)──► x² ──Linear(64,10)──► 10 logits
+shallow (default):  784 ──Linear(784,50)──► x² ──Linear(50,10)──► 10 logits
+deep:               784 ──Linear(784,128)──► x² ──Linear(128,64)──► x² ──Linear(64,10)──► 10 logits
 ```
+
+`shallow` mirrors the topology Lattica-ai's submission uses. It emits depth 3,
+which is what places it on `N = 16384`; the harness topology emits depth 5 and
+needs `N = 32768`. Under CROSS the architecture *is* the parameter choice.
 
 One ciphertext carries one image, packed into the 16384-slot vector. Each
 `Linear` is a CKKS matrix–vector product evaluated with the baby-step/giant-step
@@ -148,9 +160,12 @@ A bare square is hard to train directly, so `model/he_mlp.py` carries a
 `model/export_weights.py` re-checks it and refuses to write a model whose
 function moved by more than `1e-4` (observed: 2.5e-07).
 
-Accuracy: **97.82%** on the MNIST test set, against **97.62%** for the
-harness's own ReLU reference model trained in the same run. Replacing ReLU with
-x² cost nothing measurable on this task.
+Accuracy on the MNIST test set: **97.39%** (`shallow`) and **97.82%**
+(`deep`), against **97.62%** for the harness's own ReLU reference model. On the
+benchmark's own samples the encrypted `shallow` model scores 0.96 (small) and
+0.976 (medium) — ahead of Lattica-ai's 0.94 / 0.972, and just under the harness
+plaintext model's 0.97 / 0.982. `deep` scores 0.99 / 0.984, the highest on the
+board. See [docs/PARAMETER_STUDY.md](docs/PARAMETER_STUDY.md).
 
 ### Pre- and post-processing outside the encryption (documented per the rules)
 

@@ -2,29 +2,29 @@
   "model_name": "mlp",
   "dataset_name": "mnist",
   "Timing": {
-    "Test dataset generation": "4.4536s",
-    "Key Generation": "4.8674s",
-    "Encrypted model preprocessing": "502.3248s",
-    "Input generation": "2.3098s",
-    "Input preprocessing": "0.1931s",
-    "Input encryption": "278.3447s",
-    "Encrypted computation": "26.7515s",
-    "Result decryption": "94.733s",
-    "Result postprocessing": "0.0858s",
-    "Harness: Run inference for harness plaintext model": "2.1565s",
+    "Test dataset generation": "4.5696s",
+    "Key Generation": "3.055s",
+    "Encrypted model preprocessing": "154.5217s",
+    "Input generation": "2.2242s",
+    "Input preprocessing": "0.1934s",
+    "Input encryption": "108.7009s",
+    "Encrypted computation": "9.2508s",
+    "Result decryption": "46.1872s",
+    "Result postprocessing": "0.087s",
+    "Harness: Run inference for harness plaintext model": "2.0595s",
     "Harness: Run quality check": "0.0005s",
-    "Total": "916.2207s"
+    "Total": "330.8499s"
   },
   "Bandwidth": {
-    "Public and evaluation keys": "8.0M",
-    "Encrypted input": "2.9G",
-    "Encrypted results": "501.5M"
+    "Public and evaluation keys": "3.0M",
+    "Encrypted input": "1001.6M",
+    "Encrypted results": "251.5M"
   },
   "Quality": {
     "Encrypted model quality": {
-      "correct_predictions": 984,
+      "correct_predictions": 976,
       "total_samples": 1000,
-      "accuracy": 0.984
+      "accuracy": 0.976
     },
     "Harness model quality": {
       "correct_predictions": 982,
@@ -33,13 +33,13 @@
     }
   },
   "Server Reported": {
-    "server_model_preprocessing_total": "485.933s",
-    "server_mapping_build": "472.4789s",
-    "server_mapping_warmup": "3.384s",
-    "server_encrypted_compute_total": "26.6569s",
-    "server_tpu_execute": "19.1022s",
-    "server_tpu_execute_per_inference": "0.0191s",
-    "server_ciphertext_load": "2.3842s",
-    "server_ciphertext_store": "4.3331s"
+    "server_model_preprocessing_total": "140.8896s",
+    "server_mapping_build": "129.1968s",
+    "server_mapping_warmup": "1.2187s",
+    "server_encrypted_compute_total": "9.156s",
+    "server_tpu_execute": "4.3339s",
+    "server_tpu_execute_per_inference": "0.0043s",
+    "server_ciphertext_load": "1.0424s",
+    "server_ciphertext_store": "3.5086s"
   }
 }

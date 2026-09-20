@@ -2,30 +2,30 @@
   "model_name": "mlp",
   "dataset_name": "mnist",
   "Timing": {
-    "Test dataset generation": "8.2734s",
-    "Key Generation": "5.0901s",
-    "Encrypted model preprocessing": "478.1659s",
-    "Input generation": "1.9116s",
-    "Input preprocessing": "0.088s",
-    "Input encryption": "4.0662s",
-    "Encrypted computation": "0.2637s",
-    "Result decryption": "2.7357s",
-    "Result postprocessing": "0.0873s",
-    "Total": "500.682s"
+    "Test dataset generation": "4.5232s",
+    "Key Generation": "3.108s",
+    "Encrypted model preprocessing": "143.0748s",
+    "Input generation": "1.9102s",
+    "Input preprocessing": "0.0883s",
+    "Input encryption": "2.736s",
+    "Encrypted computation": "0.1397s",
+    "Result decryption": "2.2824s",
+    "Result postprocessing": "0.0871s",
+    "Total": "157.9496s"
   },
   "Bandwidth": {
-    "Public and evaluation keys": "8.0M",
-    "Encrypted input": "3.0M",
-    "Encrypted results": "517.5K"
+    "Public and evaluation keys": "3.0M",
+    "Encrypted input": "1.0M",
+    "Encrypted results": "261.5K"
   },
   "Server Reported": {
-    "server_model_preprocessing_total": "475.0676s",
-    "server_mapping_build": "460.8911s",
-    "server_mapping_warmup": "3.7319s",
-    "server_encrypted_compute_total": "0.1702s",
-    "server_tpu_execute": "0.1537s",
-    "server_tpu_execute_per_inference": "0.1537s",
-    "server_ciphertext_load": "0.0035s",
-    "server_ciphertext_store": "0.008s"
+    "server_model_preprocessing_total": "139.979s",
+    "server_mapping_build": "128.778s",
+    "server_mapping_warmup": "1.2059s",
+    "server_encrypted_compute_total": "0.045s",
+    "server_tpu_execute": "0.0342s",
+    "server_tpu_execute_per_inference": "0.0342s",
+    "server_ciphertext_load": "0.0019s",
+    "server_ciphertext_store": "0.006s"
   }
 }
