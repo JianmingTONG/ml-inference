@@ -31,7 +31,8 @@ it is timed.
 The deeper `CROSS_MODEL=deep` variant (784-128-64-10, N = 32768) is 4.3×
 slower per inference and 0.008 more accurate at the medium instance; see
 [docs/PARAMETER_STUDY.md](docs/PARAMETER_STUDY.md) for the full comparison and
-for why Lattica-ai's N = 4096 is not reachable from CROSS at any depth.
+for why Lattica-ai's N = 4096 is not reachable from CROSS at any depth or any
+parameter choice, and what N = 8192 would cost.
 
 Strong scaling is near-linear to all eight chips. Per-execute latency barely
 moves from 1 to 8 chips because each chip evaluates an independent ciphertext

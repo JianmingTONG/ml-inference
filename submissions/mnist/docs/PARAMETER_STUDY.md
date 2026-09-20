@@ -40,9 +40,36 @@ Measured by packing real models through `packing.pack`:
 | **784-128-64-10, two squares** (harness topology) | 5 | **32768** | 12 | 485 | 881 |
 
 **Even a single matvec needs 183 bits — already 74 bits past the 109-bit
-ceiling at N = 4096.** There is no program, however shallow, that CROSS can
-place on that ring: the floor is set by the arithmetic backend, not by the
-model.
+ceiling at N = 4096.**
+
+That table used the default 60-bit scale, so the obvious next question is
+whether a smaller scale gets there. It does not. Sweeping the *entire*
+specification space that `he_params.generate_ring_config` accepts —
+`num_q` 1..4, `scaling_mod_size` 16..60, every valid `dnum`, and slot demands
+from 16 to 784 — the only degree at or below 8192 it will ever emit is **8192**:
+
+```
+degrees reachable at <=8192: [8192]
+
+     N  num_q  smod  dnum  slots_req   Qp   Pp  log2(QP)
+  8192      2    36     2         16    4    2     129.3   <- smallest ring CROSS can emit
+```
+
+Asking for anything smaller returns
+
+```
+no tabulated degree in (1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072)
+satisfies p at 128-bit classical security
+```
+
+The binding constraints compound: `composite_degree = 2` forces at least four
+Q primes plus two P primes for even one level, and an NTT at degree `N` needs
+primes congruent to 1 mod `2N`, which puts a floor under how small those six
+primes can be. Six primes at that floor is ~129 bits — still 20 bits past the
+109-bit ceiling at N = 4096, with nothing left to trim.
+
+So there is no program, and no parameter choice, that CROSS can place on
+N = 4096. The floor is the arithmetic backend, not the model.
 
 Lattica fits 106 bits because 61- and 45-bit moduli are native 64-bit
 arithmetic on a GPU. That is the trade: CROSS accepts a larger ring to get
@@ -52,6 +79,26 @@ Lowering `scaling_mod_size` does not help either, because `composite_degree=1`
 is rejected outright; and relaxing that guard would change the scale semantics
 the evaluator depends on (`_default_matvec_plaintext_scale` treats CD1
 differently), so it is not a parameter to turn casually.
+
+## The full ladder, measured
+
+| ring | depth | architecture that fits | MNIST test accuracy | verdict |
+|---:|---:|---|---:|---|
+| **4096** | — | none | — | **not emittable by CROSS at any spec** |
+| 8192 | 2 | `x² → Linear(784,10)` | **91.6%** | reachable, but no 2-layer network fits |
+| **16384** | 3 | **784-50-10, one square** | **97.39%** | **Lattica-ai's topology; what this submission uses** |
+| 32768 | 5 | 784-128-64-10, two squares | 97.82% | the original submission |
+
+N = 8192 is genuinely reachable — `square → Linear` packs there at
+`scaling_mod_size` 40 or 50, with 6 Q towers and log2(QP) = 182. But depth 2
+cannot express `Linear → Square → Linear`: the only classifier that fits is a
+linear layer on squared pixels, which tops out at **91.6%** after 12 epochs.
+That is roughly six points below every entry on the leaderboard (Lattica-ai
+0.972, OpenFHE reference 0.974 at the medium instance), so it trades far more
+accuracy than the ring is worth.
+
+**N = 16384 is therefore the smallest ring that still runs a real two-layer
+network**, which is why this submission stops there.
 
 ## What is reachable, and what it buys
 
