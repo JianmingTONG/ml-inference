@@ -1,7 +1,15 @@
 # Can CROSS run at Lattica-ai's N = 4096?
 
-Short answer: **no, not at any depth**, and the reason is the same design choice
-that makes CROSS run on a TPU at all. This note records the measurement.
+**Yes — at depth 1.** CROSS runs on ring degree 4096 at 128-bit classical
+security, verified on TPU v6e, at **1.127 ms per inference on 8 chips**. What
+does not fit at that ring is a *multi-layer* network: only a single linear
+layer. This note records how to get there and what it costs.
+
+Two earlier revisions of this note claimed N = 4096 was unreachable. That was
+wrong, and the error is instructive: the first test only varied
+`composite_degree` (which CROSS rejects) and the second only varied
+`scaling_mod_size`. Neither touched `register_word_size`, which is what sets
+the auxiliary modulus `P`.
 
 ## What Lattica-ai uses
 
@@ -22,7 +30,36 @@ Standard gives for a uniform ternary secret at 128-bit classical security. A
 3-bit margin, and no separate `P`: with gadget-decomposition key switching the
 security modulus is just `Q`.
 
-## Why CROSS cannot match it
+## How to reach N = 4096
+
+Three settings have to move together, all through the public
+`packing.PackingPolicy` -- no library change is required:
+
+```python
+packing.PackingPolicy(
+    register_word_size=19,   # => aux_mod_size ~20 bits instead of 31
+    scaling_mod_size=34,     # smallest the N=4096 prime search sustains
+    first_mod_size=35,
+)
+# on a depth-1 program (one matvec, num_q = 2)
+```
+
+which yields:
+
+| | value |
+|---|---|
+| ring degree | **4096** |
+| Q towers | 4 — `(188417, 40961, 65537, 114689)`, 16–18 bits |
+| P towers | 2 × ~20 bits |
+| **log2(QP)** | **100.1** (ceiling at N=4096 is 109) |
+| `he_params.qp_is_secure` | **True**, 128-bit classical |
+
+`register_word_size` was the missing lever. `aux_mod_size` is defined as
+`register_word_size - 1`, so at the default 32 the P towers are 31 bits each
+and alone push QP to 127.7 — past the ceiling — no matter how small the Q
+primes get. Dropping it to 19 puts P at ~20 bits and brings QP to 100.1.
+
+## Why only depth 1 fits there
 
 CROSS targets the TPU, whose integer path is 32-bit. Every native modulus must
 stay below `2^31`, so one 60-bit CKKS scale is stored as **two ~30-bit RNS
@@ -39,8 +76,9 @@ Measured by packing real models through `packing.pack`:
 | **784-50-10, one square** (Lattica topology) | 3 | **16384** | 8 | 365 | 438 |
 | **784-128-64-10, two squares** (harness topology) | 5 | **32768** | 12 | 485 | 881 |
 
-**Even a single matvec needs 183 bits — already 74 bits past the 109-bit
-ceiling at N = 4096.**
+At the *default* 32-bit register word, even a single matvec needs 183 bits —
+74 bits past the 109-bit ceiling. That is what the earlier revisions measured
+and over-generalized from.
 
 That table used the default 60-bit scale, so the obvious next question is
 whether a smaller scale gets there. It does not. Sweeping the *entire*
@@ -68,8 +106,17 @@ primes congruent to 1 mod `2N`, which puts a floor under how small those six
 primes can be. Six primes at that floor is ~129 bits — still 20 bits past the
 109-bit ceiling at N = 4096, with nothing left to trim.
 
-So there is no program, and no parameter choice, that CROSS can place on
-N = 4096. The floor is the arithmetic backend, not the model.
+With `register_word_size = 19` the picture changes: depth 1 fits (100.1 bits),
+depth 2 does not. At depth 2 the Q chain alone is ~100 bits, leaving nothing
+for P under a 109-bit ceiling; the N=4096 prime search then fails outright
+("Underflow in PreviousPrime") when asked for a smaller scale.
+
+So the boundary at Lattica's ring is **depth 1 for CROSS, depth 3 for
+Lattica** -- one linear layer versus a two-layer network with a square.
+CROSS stores one logical scale as two RNS primes (`composite_degree = 2`) and
+needs NTT primes congruent to 1 mod 2N, so depth 1 already costs four Q
+primes. Lattica needs two primes for their whole chain because 61- and 45-bit
+moduli are native 64-bit arithmetic. That is the price of 32-bit lanes.
 
 Lattica fits 106 bits because 61- and 45-bit moduli are native 64-bit
 arithmetic on a GPU. That is the trade: CROSS accepts a larger ring to get
@@ -82,12 +129,15 @@ differently), so it is not a parameter to turn casually.
 
 ## The full ladder, measured
 
-| ring | depth | architecture that fits | MNIST test accuracy | verdict |
-|---:|---:|---|---:|---|
-| **4096** | — | none | — | **not emittable by CROSS at any spec** |
-| 8192 | 2 | `x² → Linear(784,10)` | **91.6%** | reachable, but no 2-layer network fits |
-| **16384** | 3 | **784-50-10, one square** | **97.39%** | **Lattica-ai's topology; what this submission uses** |
-| 32768 | 5 | 784-128-64-10, two squares | 97.82% | the original submission |
+| ring | depth | architecture that fits | test accuracy | ms/inference, 8 chips | `CROSS_MODEL` |
+|---:|---:|---|---:|---:|---|
+| **4096** | 1 | `Linear(784,10)` | 92.33% | **1.127** | `linear` |
+| 8192 | 2 | `x² → Linear(784,10)` | 91.6% | not measured | — |
+| **16384** | 3 | **784-50-10, one square** | **97.39%** | **4.46** | `shallow` (default) |
+| 32768 | 5 | 784-128-64-10, two squares | 97.82% | 19.24 | `deep` |
+
+Measured on 8 × TPU v6e, median of 20 iterations, each configuration checked
+against the cleartext model first. Raw JSON under `results/tpu_profile*/`.
 
 N = 8192 is genuinely reachable — `square → Linear` packs there at
 `scaling_mod_size` 40 or 50, with 6 Q towers and log2(QP) = 182. But depth 2
@@ -208,3 +258,77 @@ samples, so `shallow` sits just below it where `deep` sat just above.
 accuracy; `deep` is the most accurate submission on the board. Select with
 `CROSS_MODEL=deep` or `CROSS_MODEL=shallow`; the committed measurements are
 `shallow`.
+
+
+## N = 4096 measured on TPU v6e
+
+`CROSS_MODEL=linear`, 128-bit classical, log2(QP) = 100.1:
+
+| chips | build | execute | ms/inference | inferences/s |
+|---:|---:|---:|---:|---:|
+| 1 | 26 s | 7.36 ms | 7.358 | 135.9 |
+| 2 | 29 s | 8.00 ms | 4.000 | 250.0 |
+| 4 | 29 s | 8.03 ms | 2.009 | 497.9 |
+| **8** | 29 s | 9.02 ms | **1.127** | **887.4** |
+
+HBM on the busiest chip is 0.299 GiB and there are 56 rotation keys, against
+1.70 GiB / 76 keys at N = 16384 and 9.31 GiB / 134 at N = 32768. The Mapping
+builds in 26–29 s rather than 122–131 s.
+
+**Precision degrades, and it is visible.** Max absolute error on the decrypted
+logits is **~2e-03**, against 2.1e-12 at N = 16384 — a 100-bit modulus with an
+~18-bit scale has far less room. Labels still matched the cleartext model on
+every configuration measured (1/1, 2/2, 4/4, 8/8), which is what argmax
+classification needs, but this parameter set has little margin and should not
+be assumed safe for a task that consumes the logit values themselves.
+
+### Against Lattica-ai at the same ring
+
+| | per image | model | MNIST accuracy |
+|---|---:|---|---:|
+| **CROSS/TPU, 8 × v6e, N=4096** | **1.127 ms** | `Linear(784,10)` | 92.33% |
+| Lattica-ai, small instance, N=4096 | 2.16 ms | 784-50-10 + square | ~0.94–0.97 |
+| Lattica-ai, medium instance, N=4096 | 0.215 ms | same | same |
+
+At the same ring degree CROSS on eight TPU v6e chips is **1.9× faster per
+image than Lattica's small-instance figure**, and 5.2× slower than their
+medium-instance figure, which amortizes over batch-axis packing CROSS does not
+have. The comparison is not like-for-like on capability: they run a two-layer
+network at that ring and CROSS runs a linear classifier, which is five
+accuracy points worse. Reaching Lattica's ring *and* their model capability
+would need 64-bit moduli in CROSS, not a parameter change.
+
+
+### N = 4096 end to end, unmodified harness, `--num_runs 3`
+
+Saved under `results/measurements_4096/`. The committed `measurements/` remain
+the `shallow` runs, which is what this submission claims.
+
+| instance | TPU / inference | stage 7 | harness total | encrypted accuracy | keys | input |
+|---|---:|---:|---:|---:|---:|---:|
+| single | 9.4 ms | 0.108 s | 53.6 s | PASS | 388.1 K | 133.5 K |
+| small (100) | **1.2 ms** | 0.531 s | 67.8 s | 0.88 | 388.1 K | 12.7 M |
+| medium (1000) | **1.1 ms** | 4.52 s | 101.9 s | 0.92 | 388.1 K | 126.5 M |
+
+Key material drops to 388 KB and the medium instance's ciphertext upload from
+1001.6 MB to 126.5 MB. Harness total for the medium instance falls from
+331.7 s (`shallow`) to 101.9 s.
+
+The accuracy is the catch: **0.88 and 0.92**, against the harness plaintext
+model's 0.97 and 0.982, and against Lattica-ai's 0.94 and 0.972 *at the same
+ring*. A linear classifier is all that fits at N = 4096 under 32-bit lanes.
+
+## Which variant to submit
+
+| | `linear` N=4096 | `shallow` N=16384 | `deep` N=32768 |
+|---|---:|---:|---:|
+| TPU per inference, 8 chips | **1.1 ms** | 4.3 ms | 19.1 ms |
+| encrypted accuracy, medium | 0.92 | **0.976** | **0.984** |
+| harness total, medium | **101.9 s** | 331.7 s | 917.0 s |
+| vs Lattica-ai accuracy (0.972) | −0.052 | +0.004 | +0.012 |
+| vs OpenFHE reference (0.974) | −0.054 | +0.002 | +0.010 |
+
+`linear` is the fastest and matches Lattica's ring exactly, but it is the only
+variant that would rank *below* both existing leaderboard entries on accuracy.
+`shallow` stays the submission: it is 4.4× faster than the original and still
+the most accurate entry bar `deep`.

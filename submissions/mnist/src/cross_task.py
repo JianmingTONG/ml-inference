@@ -272,16 +272,25 @@ def parse_size(argv) -> int:
 # `shallow` mirrors the topology Lattica-ai's submission uses and is the
 # smallest ring CROSS can reach for a useful MNIST model. See
 # model/he_mlp_shallow.py for why N = 4096 is not reachable at any depth.
+# variant -> (module, class, weights, packing-policy overrides)
+#
+# `linear` is the only architecture CROSS can place on ring degree 4096, the
+# ring Lattica-ai uses. Getting there needs register_word_size=19 (so the
+# auxiliary modulus is ~20 bits instead of 31) and the smallest scale the
+# N=4096 prime search sustains. See model/he_mlp_linear.py.
 MODEL_VARIANTS = {
-    'deep': ('he_mlp', 'HEMLP', 'he_mlp_weights.pth'),
-    'shallow': ('he_mlp_shallow', 'ShallowHEMLP', 'he_mlp_shallow_weights.pth'),
+    'deep': ('he_mlp', 'HEMLP', 'he_mlp_weights.pth', {}),
+    'shallow': ('he_mlp_shallow', 'ShallowHEMLP', 'he_mlp_shallow_weights.pth', {}),
+    'linear': ('he_mlp_linear', 'LinearHE', 'he_mlp_linear_weights.pth',
+               {'register_word_size': 19, 'scaling_mod_size': 34,
+                'first_mod_size': 35}),
 }
 MODEL_VARIANT = os.environ.get('CROSS_MODEL', 'shallow').lower()
 if MODEL_VARIANT not in MODEL_VARIANTS:
   raise SystemExit(
       f'CROSS_MODEL={MODEL_VARIANT!r} is not one of {sorted(MODEL_VARIANTS)}')
 
-_MODULE, _CLASS, _WEIGHT_FILE = MODEL_VARIANTS[MODEL_VARIANT]
+_MODULE, _CLASS, _WEIGHT_FILE, POLICY_OVERRIDES = MODEL_VARIANTS[MODEL_VARIANT]
 WEIGHTS = SUBMISSION_ROOT / 'model' / _WEIGHT_FILE
 
 
@@ -315,8 +324,8 @@ def build_packed(model=None):
   if model is None:
     model = load_model()
   program = nn.vectorize(model, (784,), warn=False)
-  packed = packing.pack(
-      program, policy=packing.PackingPolicy(lazy_constants=True))
+  packed = packing.pack(program, policy=packing.PackingPolicy(
+      lazy_constants=True, **POLICY_OVERRIDES))
   return model, program, packed
 
 
@@ -335,8 +344,8 @@ def build_client_packed():
 
   model = _model_class()().double().eval()
   program = nn.vectorize(model, (784,), warn=False)
-  return packing.pack(
-      program, policy=packing.PackingPolicy(lazy_constants=True))
+  return packing.pack(program, policy=packing.PackingPolicy(
+      lazy_constants=True, **POLICY_OVERRIDES))
 
 
 def verify_against_manifest(packed, manifest):
